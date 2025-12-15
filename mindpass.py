@@ -3,14 +3,13 @@ import random
 import string
 import secrets
 import asyncio
-from aiogram.utils.callback_data import CallbackData
-from aiogram import Bot, Dispatcher, executor, types
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters import Text
-from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.dispatcher.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import Bot, Dispatcher, F
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
+from aiogram.filters.command import Command
+from aiogram.filters.state import StateFilter
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
 
 
 # Справка
@@ -30,34 +29,34 @@ HELP_TEXT = (
     )
 
 # Токен бота
-BOT_TOKEN = '7091814213:AAGOxYtD6XU8u_k7xcRqHTOKBBIvgembinw'
+BOT_TOKEN = '7091814213:AAFngu1UgkI80Xy5cqQS7qfEQryWHnqQtvc'
 
 # инициализация бота и диспетчера с хранилищем состояний
 storage = MemoryStorage()
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot, storage=storage)
+dp = Dispatcher(storage=storage)
 
-# Callback data factory для экшенов кнопок
-hide_callback = CallbackData("help", "action")
+# Callback data для экшенов кнопок
+# hide_callback = CallbackData("help", "action")
 
-# Создаем callback_data фабрику для кнопок главного меню и вложенных меню
-main_menu_cd = CallbackData("main_menu", "action")
-nested_menu_cd = CallbackData("nested_menu", "action", "level")
+# Создаем callback_data для кнопок главного меню и вложенных меню
+# main_menu_cd = CallbackData("main_menu", "action")
+# nested_menu_cd = CallbackData("nested_menu", "action", "level")
 # Дополнительные callback_data
-confirm_callback = CallbackData('confirm', 'action', 'tag')
+# confirm_callback = CallbackData('confirm', 'action', 'tag')
 
     
 # Генерация инлайн клавиатуры главного меню
 def get_main_menu_keyboard():
     keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(types.InlineKeyboardButton(text="Сгенерировать пароль", callback_data=main_menu_cd.new(action="generate")))
-    keyboard.add(types.InlineKeyboardButton(text="Помощь", callback_data=main_menu_cd.new(action="help")))
+    keyboard.add(types.InlineKeyboardButton(text="Сгенерировать пароль", callback_data="main_menu:generate"))
+    keyboard.add(types.InlineKeyboardButton(text="Помощь", callback_data="main_menu:help"))
     return keyboard
 
 # Реакция на кнопки главного меню
-@dp.callback_query_handler(main_menu_cd.filter(action=["generate", "help"]))
-async def query_main_menu(callback_query: types.CallbackQuery, callback_data: dict):
-    action = callback_data['action']
+@dp.callback_query(F.data.startswith("main_menu:"))
+async def query_main_menu(callback_query: CallbackQuery):
+    action = callback_query.data.split(":")[1]
     if action == "generate":
         await callback_query.message.edit_text('Введите тег для вашего пароля:', reply_markup=None)
         await Form.waiting_for_tag.set()
@@ -65,15 +64,15 @@ async def query_main_menu(callback_query: types.CallbackQuery, callback_data: di
         await callback_query.message.edit_text(HELP_TEXT)
         # Добавим кнопку "Назад" или "Закрыть"
         back_keyboard = types.InlineKeyboardMarkup()
-        back_keyboard.add(types.InlineKeyboardButton(text="Назад", callback_data=nested_menu_cd.new(action="back", level="main")))
+        back_keyboard.add(types.InlineKeyboardButton(text="Назад", callback_data="nested_menu:back:main"))
         await callback_query.message.edit_reply_markup(reply_markup=back_keyboard)
 
     await callback_query.answer()  # Убираем "часики"
 
 # Реакция на кнопки вложенного меню
-@dp.callback_query_handler(nested_menu_cd.filter(action="back"))
-async def query_nested_menu(callback_query: types.CallbackQuery, callback_data: dict):
-    level = callback_data['level']
+@dp.callback_query(F.data.startswith("nested_menu:"))
+async def query_nested_menu(callback_query: CallbackQuery):
+    level = callback_query.data.split(":")[2]
     if level == "main":
         await callback_query.message.edit_text("Выберите действие:", reply_markup=get_main_menu_keyboard())
     await callback_query.answer()  # Убираем "часики"
@@ -125,33 +124,33 @@ async def send_keyboard(message: aiogram.types.Message, text: str, keyboard: lis
     await message.answer(text, reply_markup=aiogram.types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True))
 
 # Обработчик команды /start
-@dp.message_handler(Command('start'))
-async def command_start(message: types.Message):
+@dp.message(Command('start'))
+async def command_start(message: Message):
     await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
     await message.answer("Привет! Это бот для генерации паролей.\n Создай надежный пароль, который будет легко запомнить.\n Выбери действие:", reply_markup=get_main_menu_keyboard())
 
     
 # Обновленный обработчик команды /help
-@dp.message_handler(commands=['help'])
-async def send_help(message: types.Message):
+@dp.message(Command('help'))
+async def send_help(message: Message):
     # Удаление сообщения "Помощь"
     await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
     # Создание инлайн клавиатуры для скрытия справки
     keyboard = types.InlineKeyboardMarkup()
-    hide_button = types.InlineKeyboardButton(text="Скрыть это сообщение", callback_data=hide_callback.new(action="hide"))
+    hide_button = types.InlineKeyboardButton(text="Скрыть это сообщение", callback_data="hide_help")
     keyboard.add(hide_button)
 
     await message.answer(HELP_TEXT, reply_markup=keyboard)
     
 # Обработчик нажатия на кнопку "Скрыть это сообщение"
-@dp.callback_query_handler(hide_callback.filter(action="hide"))
-async def hide_help_message(callback_query: types.CallbackQuery, callback_data: dict):
+@dp.callback_query(F.data == "hide_help")
+async def hide_help_message(callback_query: CallbackQuery):
     await callback_query.message.delete()
     await callback_query.answer()  # Отправляем пустой ответ, чтобы убрать "часики" на кнопке
 
 # Изменим обработчик кнопки "Сгенерировать пароль"
-@dp.message_handler(text='Сгенерировать пароль', state='*')
-async def enter_tag(message: types.Message):
+@dp.message(F.text == 'Сгенерировать пароль', StateFilter('*'))
+async def enter_tag(message: Message):
     # Удаление сообщения "Выберите действие"
     await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id - 1)
     # Удаление сообщения "Сгенерировать пароль"
@@ -161,8 +160,8 @@ async def enter_tag(message: types.Message):
     await callback_query.answer()
 
 # Обработчик текстовых сообщений для получения тега и генерации пароля
-@dp.message_handler(state=Form.waiting_for_tag)
-async def process_tag(message: types.Message, state: FSMContext):
+@dp.message(StateFilter(Form.waiting_for_tag))
+async def process_tag(message: Message, state: FSMContext):
     # Получаем тег, введенный пользователем, и генерируем пароль
     tag = message.text
     password = generate_password()
@@ -182,17 +181,17 @@ async def process_tag(message: types.Message, state: FSMContext):
 
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("Перегенерировать", callback_data='regenerate'))
-    markup.add(types.InlineKeyboardButton("Сохранить", callback_data=confirm_callback.new(action='save', tag=tag)))
+    markup.add(types.InlineKeyboardButton("Сохранить", callback_data=f"confirm:save:{tag}"))
 
                                     
     # Отправляем сообщение с паролем, где пароль скрыт и начинается с новой строки
-    await message.answer(f'Тег: {escaped_tag}\nПароль: ||{escaped_password}|| \n\n\* Отобразить \- Тап по паролю\n\n  Сложно запомнить такой пароль\? Перегенерируй\! \n\n Нравится\? Сохрани\!', parse_mode=aiogram.types.ParseMode.MARKDOWN_V2, reply_markup=markup)
+    await message.answer(rf'Тег: {escaped_tag}\nПароль: ||{escaped_password}|| \n\n\* Отобразить \- Тап по паролю\n\n  Сложно запомнить такой пароль\? Перегенерируй\! \n\n Нравится\? Сохрани\!', parse_mode="MarkdownV2", reply_markup=markup)
 
     
 
 # Обработчик для кнопки "Перегенерировать"
-@dp.callback_query_handler(lambda c: c.data == 'regenerate', state=Form.waiting_for_password_confirmation)
-async def regenerate_password(callback_query: types.CallbackQuery, state: FSMContext):
+@dp.callback_query(F.data == 'regenerate', StateFilter(Form.waiting_for_password_confirmation))
+async def regenerate_password(callback_query: CallbackQuery, state: FSMContext):
     user_data = await state.get_data()
     tag = user_data['tag']
     # Генерация нового пароля с использованием того же тега
@@ -207,16 +206,16 @@ async def regenerate_password(callback_query: types.CallbackQuery, state: FSMCon
 
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("Перегенерировать", callback_data='regenerate'))
-    markup.add(types.InlineKeyboardButton("Сохранить", callback_data=confirm_callback.new(action='save', tag=tag)))
+    markup.add(types.InlineKeyboardButton("Сохранить", callback_data=f"confirm:save:{tag}"))
 
 
     # Отправляем пароль пользователю и предупреждение о проверке надёжности
-    await callback_query.message.edit_text(f'Тег: {escaped_tag}\nПароль: ||{escaped_password}|| \n\n\* Отобразить \- Тап по паролю\n\n  Сложно запомнить такой пароль\? Перегенерируй\! \n\n Нравится\? Сохрани\!', parse_mode=aiogram.types.ParseMode.MARKDOWN_V2, reply_markup=markup)
+    await callback_query.message.edit_text(rf'Тег: {escaped_tag}\nПароль: ||{escaped_password}|| \n\n\* Отобразить \- Тап по паролю\n\n  Сложно запомнить такой пароль\? Перегенерируй\! \n\n Нравится\? Сохрани\!', parse_mode="MarkdownV2", reply_markup=markup)
                     
  
 # Обработчик кнопки "Сохранить"
-@dp.callback_query_handler(confirm_callback.filter(action='save'), state=Form.waiting_for_password_confirmation)
-async def save_password(callback_query: types.CallbackQuery, state: FSMContext):
+@dp.callback_query(F.data.startswith("confirm:"), StateFilter(Form.waiting_for_password_confirmation))
+async def save_password(callback_query: CallbackQuery, state: FSMContext):
     # Получение текущих данных из состояния
     user_data = await state.get_data()
     tag = user_data['tag']
@@ -231,7 +230,7 @@ async def save_password(callback_query: types.CallbackQuery, state: FSMContext):
 
     # Отправляем сообщение с паролем, где пароль скрыт и начинается с новой строки
     await callback_query.message.edit_text(f'Тег: {escaped_tag}\nПароль: ||{escaped_password}||', 
-                         parse_mode=aiogram.types.ParseMode.MARKDOWN_V2, reply_markup=None)
+                         parse_mode="MarkdownV2", reply_markup=None)
     
     # Убираем клавиатуру после сохранения пароля
     await callback_query.message.edit_reply_markup(reply_markup=None)
@@ -241,6 +240,9 @@ async def save_password(callback_query: types.CallbackQuery, state: FSMContext):
 
 
 # Запуск бота
+async def main():
+    await dp.start_polling(bot)
+
 if __name__ == "__main__":
-    aiogram.executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main())
 
