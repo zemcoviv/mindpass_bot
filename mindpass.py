@@ -29,7 +29,7 @@ HELP_TEXT = (
     )
 
 # Токен бота
-BOT_TOKEN = '7091814213:AAFngu1UgkI80Xy5cqQS7qfEQryWHnqQtvc'
+BOT_TOKEN = '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi'
 
 # инициализация бота и диспетчера с хранилищем состояний
 storage = MemoryStorage()
