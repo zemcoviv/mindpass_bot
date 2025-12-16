@@ -1,4 +1,18 @@
 import aiogram
+
+# Compatibility: CallbackData moved between aiogram versions.
+# Try v3 import first, fall back to v2 path for older installs.
+try:
+    from aiogram.filters.callback_data import CallbackData
+except Exception:
+    try:
+        from aiogram.utils.callback_data import CallbackData
+    except Exception:
+        raise ImportError(
+            "Couldn't import CallbackData from aiogram. "
+            "Install aiogram v3 or adjust the import path (v2: aiogram.utils.callback_data)."
+        )
+
 import random
 import string
 import secrets
