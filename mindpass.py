@@ -1,4 +1,5 @@
 import aiogram
+from aiogram import types
 
 # Compatibility: CallbackData moved between aiogram versions.
 # Try v3 import first, fall back to v2 path for older installs.
@@ -62,9 +63,10 @@ dp = Dispatcher(storage=storage)
     
 # Генерация инлайн клавиатуры главного меню
 def get_main_menu_keyboard():
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(types.InlineKeyboardButton(text="Сгенерировать пароль", callback_data="main_menu:generate"))
-    keyboard.add(types.InlineKeyboardButton(text="Помощь", callback_data="main_menu:help"))
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Сгенерировать пароль", callback_data="main_menu:generate")],
+        [InlineKeyboardButton(text="Помощь", callback_data="main_menu:help")],
+    ])
     return keyboard
 
 # Реакция на кнопки главного меню
@@ -77,8 +79,9 @@ async def query_main_menu(callback_query: CallbackQuery):
     elif action == "help":
         await callback_query.message.edit_text(HELP_TEXT)
         # Добавим кнопку "Назад" или "Закрыть"
-        back_keyboard = types.InlineKeyboardMarkup()
-        back_keyboard.add(types.InlineKeyboardButton(text="Назад", callback_data="nested_menu:back:main"))
+        back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="Назад", callback_data="nested_menu:back:main")]
+])
         await callback_query.message.edit_reply_markup(reply_markup=back_keyboard)
 
     await callback_query.answer()  # Убираем "часики"
