@@ -1,8 +1,10 @@
 import aiogram
+import aiogram.types as types
 import random
 import string
 import secrets
 import asyncio
+import re
 from aiogram import Bot, Dispatcher, F
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
@@ -10,6 +12,11 @@ from aiogram.filters.command import Command
 from aiogram.filters.state import StateFilter
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
+
+def escape_md(text: str) -> str:
+    """Экранирование спецсимволов для MarkdownV2"""
+    # Экранируем спецсимволы, но НЕ экранируем \n (переносы строк)
+    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!\\])', r'\\\1', text).replace(r'\\n', '\n')
 
 
 # Справка
@@ -29,7 +36,7 @@ HELP_TEXT = (
     )
 
 # Токен бота
-BOT_TOKEN = '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi'
+BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE'  # Замените на ваш токен Telegram бота
 
 # инициализация бота и диспетчера с хранилищем состояний
 storage = MemoryStorage()
@@ -48,23 +55,24 @@ dp = Dispatcher(storage=storage)
     
 # Генерация инлайн клавиатуры главного меню
 def get_main_menu_keyboard():
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(types.InlineKeyboardButton(text="Сгенерировать пароль", callback_data="main_menu:generate"))
-    keyboard.add(types.InlineKeyboardButton(text="Помощь", callback_data="main_menu:help"))
-    return keyboard
+    return types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="Сгенерировать пароль", callback_data="main_menu:generate")],
+        [types.InlineKeyboardButton(text="Помощь", callback_data="main_menu:help")]
+    ])
 
 # Реакция на кнопки главного меню
 @dp.callback_query(F.data.startswith("main_menu:"))
-async def query_main_menu(callback_query: CallbackQuery):
+async def query_main_menu(callback_query: CallbackQuery, state: FSMContext):
     action = callback_query.data.split(":")[1]
     if action == "generate":
         await callback_query.message.edit_text('Введите тег для вашего пароля:', reply_markup=None)
-        await Form.waiting_for_tag.set()
+        await state.set_state(Form.waiting_for_tag)
     elif action == "help":
         await callback_query.message.edit_text(HELP_TEXT)
         # Добавим кнопку "Назад" или "Закрыть"
-        back_keyboard = types.InlineKeyboardMarkup()
-        back_keyboard.add(types.InlineKeyboardButton(text="Назад", callback_data="nested_menu:back:main"))
+        back_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="Назад", callback_data="nested_menu:back:main")]
+        ])
         await callback_query.message.edit_reply_markup(reply_markup=back_keyboard)
 
     await callback_query.answer()  # Убираем "часики"
@@ -136,9 +144,9 @@ async def send_help(message: Message):
     # Удаление сообщения "Помощь"
     await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
     # Создание инлайн клавиатуры для скрытия справки
-    keyboard = types.InlineKeyboardMarkup()
-    hide_button = types.InlineKeyboardButton(text="Скрыть это сообщение", callback_data="hide_help")
-    keyboard.add(hide_button)
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="Скрыть это сообщение", callback_data="hide_help")]
+    ])
 
     await message.answer(HELP_TEXT, reply_markup=keyboard)
     
@@ -150,14 +158,13 @@ async def hide_help_message(callback_query: CallbackQuery):
 
 # Изменим обработчик кнопки "Сгенерировать пароль"
 @dp.message(F.text == 'Сгенерировать пароль', StateFilter('*'))
-async def enter_tag(message: Message):
+async def enter_tag(message: Message, state: FSMContext):
     # Удаление сообщения "Выберите действие"
     await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id - 1)
     # Удаление сообщения "Сгенерировать пароль"
     await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
     await message.reply('Введите тег для вашего пароля:')
-    await Form.waiting_for_tag.set()  # устанавливаем состояние ожидания тега
-    await callback_query.answer()
+    await state.set_state(Form.waiting_for_tag)  # устанавливаем состояние ожидания тега
 
 # Обработчик текстовых сообщений для получения тега и генерации пароля
 @dp.message(StateFilter(Form.waiting_for_tag))
@@ -173,19 +180,21 @@ async def process_tag(message: Message, state: FSMContext):
     await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
     
     # Обратите внимание на двойной обратный слеш для экранирования в MarkdownV2
-    escaped_tag = aiogram.utils.markdown.escape_md(tag)
-    escaped_password = aiogram.utils.markdown.escape_md(password)
+    escaped_tag = escape_md(tag)
+    escaped_password = escape_md(password)
                          
     await state.update_data(tag=tag, password=password)
-    await Form.waiting_for_password_confirmation.set()
+    await state.set_state(Form.waiting_for_password_confirmation)
 
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Перегенерировать", callback_data='regenerate'))
-    markup.add(types.InlineKeyboardButton("Сохранить", callback_data=f"confirm:save:{tag}"))
+    markup = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="Перегенерировать", callback_data='regenerate')],
+        [types.InlineKeyboardButton(text="Сохранить", callback_data=f"confirm:save:{tag}")]
+    ])
 
                                     
-    # Отправляем сообщение с паролем, где пароль скрыт и начинается с новой строки
-    await message.answer(rf'Тег: {escaped_tag}\nПароль: ||{escaped_password}|| \n\n\* Отобразить \- Тап по паролю\n\n  Сложно запомнить такой пароль\? Перегенерируй\! \n\n Нравится\? Сохрани\!', parse_mode="MarkdownV2", reply_markup=markup)
+    # Отправляем сообщение с паролем, где пароль скрыт и начинается с новой строке
+    msg_text = f'Тег: {escaped_tag}\nПароль: ||{escaped_password}|| \n\n\\* Отобразить \\- Тап по паролю\n\n  Сложно запомнить такой пароль\\? Перегенерируй\\! \n\n Нравится\\? Сохрани\\!'
+    await message.answer(msg_text, parse_mode="MarkdownV2", reply_markup=markup)
 
     
 
@@ -198,19 +207,21 @@ async def regenerate_password(callback_query: CallbackQuery, state: FSMContext):
     password = generate_password()
     
     # Обратите внимание на двойной обратный слеш для экранирования в MarkdownV2
-    escaped_tag = aiogram.utils.markdown.escape_md(tag)
-    escaped_password = aiogram.utils.markdown.escape_md(password)
+    escaped_tag = escape_md(tag)
+    escaped_password = escape_md(password)
 
     await state.update_data(tag=tag, password=password)
-    await Form.waiting_for_password_confirmation.set()
+    await state.set_state(Form.waiting_for_password_confirmation)
 
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Перегенерировать", callback_data='regenerate'))
-    markup.add(types.InlineKeyboardButton("Сохранить", callback_data=f"confirm:save:{tag}"))
+    markup = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="Перегенерировать", callback_data='regenerate')],
+        [types.InlineKeyboardButton(text="Сохранить", callback_data=f"confirm:save:{tag}")]
+    ])
 
 
     # Отправляем пароль пользователю и предупреждение о проверке надёжности
-    await callback_query.message.edit_text(rf'Тег: {escaped_tag}\nПароль: ||{escaped_password}|| \n\n\* Отобразить \- Тап по паролю\n\n  Сложно запомнить такой пароль\? Перегенерируй\! \n\n Нравится\? Сохрани\!', parse_mode="MarkdownV2", reply_markup=markup)
+    msg_text = f'Тег: {escaped_tag}\nПароль: ||{escaped_password}|| \n\n\\* Отобразить \\- Тап по паролю\n\n  Сложно запомнить такой пароль\\? Перегенерируй\\! \n\n Нравится\\? Сохрани\\!'
+    await callback_query.message.edit_text(msg_text, parse_mode="MarkdownV2", reply_markup=markup)
                     
  
 # Обработчик кнопки "Сохранить"
@@ -221,19 +232,16 @@ async def save_password(callback_query: CallbackQuery, state: FSMContext):
     tag = user_data['tag']
     password = user_data['password']
     
-    # Завершаем состояние FSM (если после сохранения пароля это больше не требуется)
-    await state.finish()
+    # Завершаем состояние FSM
+    await state.clear()
     
     # Обратите внимание на двойной обратный слеш для экранирования в MarkdownV2
-    escaped_tag = aiogram.utils.markdown.escape_md(tag)
-    escaped_password = aiogram.utils.markdown.escape_md(password)
+    escaped_tag = escape_md(tag)
+    escaped_password = escape_md(password)
 
     # Отправляем сообщение с паролем, где пароль скрыт и начинается с новой строки
     await callback_query.message.edit_text(f'Тег: {escaped_tag}\nПароль: ||{escaped_password}||', 
                          parse_mode="MarkdownV2", reply_markup=None)
-    
-    # Убираем клавиатуру после сохранения пароля
-    await callback_query.message.edit_reply_markup(reply_markup=None)
     
     # Информируем пользователя об успешном сохранении
     await callback_query.answer("Пароль сохранён.")
